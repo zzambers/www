@@ -30,6 +30,7 @@
 # config_opts['plugin_conf']['overlayfs_enable'] = True
 # config_opts['plugin_conf']['overlayfs_opts']['base_dir'] = /some/directory
 # config_opts['plugin_conf']['overlayfs_opts']['debug'] = False
+# config_opts['plugin_conf']['overlayfs_opts']['touch_rpmdb'] = False
 #
 # ( Plugin uses postinit snapshot, similary to LVM, root chache is pointless. )
 #
@@ -37,7 +38,15 @@
 #            asociated with snapshots (layers, refs etc., see lower for details)
 #            It is further namespaced by configname so the same directory can be
 #            used in multiple mock configs without problems.
-# debug - print debug info
+# debug - print debug info, default: False
+# touch_rpmdb - automatically "touch" rpmdb files after each mount to copy
+#               them to upper layer to overcome rpm/yum issue,
+#               when calling them directly in chroot. See:
+#                   https://bugzilla.redhat.com/show_bug.cgi?id=1213602
+#                   https://docs.docker.com/storage/storagedriver/overlayfs-driver/#limitations-on-overlayfs-compatibility
+#               ( Option is not required when installing using mock --install,
+#               issue is work-arounded automatically there)
+#               defult: False
 #
 # plugin's resources asociated with config can be released by:
 #     mock -r <config> scrub all
@@ -145,6 +154,9 @@ class OverlayFsPlugin(object):
         self.debug = conf.get('debug')
         if not self.debug:
             self.debug = False
+        self.touchRpmdbEnabled = conf.get('touch_rpmdb')
+        if not self.touchRpmdbEnabled:
+            self.touchRpmdbEnabled = False
         plugins.add_hook("make_snapshot", self.hook_make_snapshot)
         plugins.add_hook("remove_snapshot", self.hook_remove_snapshot)
         plugins.add_hook("rollback_to", self.hook_rollback_to)
@@ -155,6 +167,7 @@ class OverlayFsPlugin(object):
         plugins.add_hook("postinit", self.hook_postinit)
         plugins.add_hook("postclean", self.hook_postclean)
         plugins.add_hook("scrub", self.hook_scrub)
+        plugins.add_hook("preyum", self.hook_preyum)
 
     ################
     #    FILES    #
@@ -611,6 +624,17 @@ class OverlayFsPlugin(object):
         if self.debug:
             sys.stderr.write("DEBUG: Overalyfs pluin: " + message + "\n")
 
+    # move rpmdb files to upper layer to overcome yum/rpm problems,
+    # due to overlayfs limitations. For more details see documentation
+    # of touch_rpmdb option documentation on begining of this file.
+    def touchRpmdb(self):
+        rpmDbDir = os.path.join(self.rootDir, "var", "lib", "rpm")
+        if os.path.exists(rpmDbDir):
+            rpmDbFiles = os.listdir(rpmDbDir)
+            for rpmDbFile in rpmDbFiles:
+                with open(rpmDbFile, "ab") as rpmDbFileObj:
+                    pass
+
     ###############
     #    HOOKS    #
     ###############
@@ -681,6 +705,8 @@ class OverlayFsPlugin(object):
             self.snapshotLock()
             self.initLayers()
             self.mountRoot()
+            if self.touchRpmdbEnabled:
+                self.touchRpmdb()
         finally:
             self.mountUnlock()
 
@@ -739,6 +765,8 @@ class OverlayFsPlugin(object):
                     # mount everything again
                     self.mountRoot()
                     self.buildroot.mounts.mountall_managed()
+                    if self.touchRpmdbEnabled:
+                        self.touchRpmdb()
         finally:
             self.mountUnlock()
 
@@ -774,3 +802,8 @@ class OverlayFsPlugin(object):
                 shutil.rmtree(pluginInstanceDir)
         finally:
             self.snapshotUnlock()
+
+    def hook_preyum(self):
+        self.debugPrint("hook_preyum")
+        if self.isRootMounted():
+            self.touchRpmdb()
