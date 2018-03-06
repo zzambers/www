@@ -807,5 +807,10 @@ class OverlayFsPlugin(object):
 
     def hook_preyum(self):
         self.debugPrint("hook_preyum")
-        if self.isRootMounted():
-            self.touchRpmdb()
+        self.basicInit()
+        self.mountLock()
+        try:
+            if self.isRootMounted():
+                self.touchRpmdb()
+        finally:
+            self.mountUnlock()
