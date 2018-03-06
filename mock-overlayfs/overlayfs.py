@@ -624,14 +624,16 @@ class OverlayFsPlugin(object):
         if self.debug:
             sys.stderr.write("DEBUG: Overalyfs pluin: " + message + "\n")
 
-    # move rpmdb files to upper layer to overcome yum/rpm problems,
-    # due to overlayfs limitations. For more details see documentation
-    # of touch_rpmdb option documentation on begining of this file.
+    # touch rpmdb files to make overlayfs copy them to upper layer to overcome
+    # yum/rpm problems, due to overlayfs limitations. For more details see
+    # documentation of touch_rpmdb option documentation on begining
+    # of this file.
     def touchRpmdb(self):
         rpmDbDir = os.path.join(self.rootDir, "var", "lib", "rpm")
         if os.path.exists(rpmDbDir):
-            rpmDbFiles = os.listdir(rpmDbDir)
-            for rpmDbFile in rpmDbFiles:
+            rpmDbFileNames = os.listdir(rpmDbDir)
+            for rpmDbFileName in rpmDbFileNames:
+                rpmDbFile = os.path.join(rpmDbDir, rpmDbFileName)
                 with open(rpmDbFile, "ab") as rpmDbFileObj:
                     pass
 
