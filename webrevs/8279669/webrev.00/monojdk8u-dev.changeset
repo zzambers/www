@@ -1,0 +1,25 @@
+# HG changeset patch
+# User Zdenek Zambersky <zzambers@redhat.com>
+# Date 1645453291 -3600
+#      Mon Feb 21 15:21:31 2022 +0100
+# Node ID 85d20a89ce80ef1cf8a040df2b80df94d55836b2
+# Parent  7376b980d6b085d5d9061d212f3ad69d239718e6
+8279669: test/jdk/com/sun/jdi/TestScaffold.java uses wrong condition
+
+diff --git a/jdk/test/com/sun/jdi/TestScaffold.java b/jdk/test/com/sun/jdi/TestScaffold.java
+--- a/jdk/test/com/sun/jdi/TestScaffold.java
++++ b/jdk/test/com/sun/jdi/TestScaffold.java
+@@ -532,9 +532,10 @@
+                         Location loc = ((Locatable)event).location();
+                         ReferenceType rt = loc.declaringType();
+                         String name = rt.name();
+-                        if (name.startsWith("java.") &&
+-                                       !name.startsWith("sun.") &&
+-                                       !name.startsWith("com.")) {
++                        if (name.startsWith("java.")
++                            || name.startsWith("sun.")
++                            || name.startsWith("com.")
++                            || name.startsWith("jdk.")) {
+                             if (mainStartClass != null) {
+                                 redefine(mainStartClass);
+                             }

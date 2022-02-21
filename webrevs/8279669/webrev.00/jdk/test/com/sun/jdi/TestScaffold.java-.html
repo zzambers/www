@@ -1,0 +1,1015 @@
+<?xml version="1.0"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head><meta charset="utf-8">
+<meta http-equiv="cache-control" content="no-cache" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="-1" />
+<!--
+   Note to customizers: the body of the webrev is IDed as SUNWwebrev
+   to allow easy overriding by users of webrev via the userContent.css
+   mechanism available in some browsers.
+
+   For example, to have all "removed" information be red instead of
+   brown, set a rule in your userContent.css file like:
+
+       body#SUNWwebrev span.removed { color: red ! important; }
+-->
+<style type="text/css" media="screen">
+body {
+    background-color: #eeeeee;
+}
+hr {
+    border: none 0;
+    border-top: 1px solid #aaa;
+    height: 1px;
+}
+div.summary {
+    font-size: .8em;
+    border-bottom: 1px solid #aaa;
+    padding-left: 1em;
+    padding-right: 1em;
+}
+div.summary h2 {
+    margin-bottom: 0.3em;
+}
+div.summary table th {
+    text-align: right;
+    vertical-align: top;
+    white-space: nowrap;
+}
+span.lineschanged {
+    font-size: 0.7em;
+}
+span.oldmarker {
+    color: red;
+    font-size: large;
+    font-weight: bold;
+}
+span.newmarker {
+    color: green;
+    font-size: large;
+    font-weight: bold;
+}
+span.removed {
+    color: brown;
+}
+span.changed {
+    color: blue;
+}
+span.new {
+    color: blue;
+    font-weight: bold;
+}
+a.print { font-size: x-small; }
+
+</style>
+
+<style type="text/css" media="print">
+pre { font-size: 0.8em; font-family: courier, monospace; }
+span.removed { color: #444; font-style: italic }
+span.changed { font-weight: bold; }
+span.new { font-weight: bold; }
+span.newmarker { font-size: 1.2em; font-weight: bold; }
+span.oldmarker { font-size: 1.2em; font-weight: bold; }
+a.print {display: none}
+hr { border: none 0; border-top: 1px solid #aaa; height: 1px; }
+</style>
+
+<title>Old jdk/test/com/sun/jdi/TestScaffold.java</title>
+<body id="SUNWwebrev">
+<pre>
+   1 /*
+   2  * Copyright (c) 2001, 2018, Oracle and/or its affiliates. All rights reserved.
+   3  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+   4  *
+   5  * This code is free software; you can redistribute it and/or modify it
+   6  * under the terms of the GNU General Public License version 2 only, as
+   7  * published by the Free Software Foundation.
+   8  *
+   9  * This code is distributed in the hope that it will be useful, but WITHOUT
+  10  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  11  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+  12  * version 2 for more details (a copy is included in the LICENSE file that
+  13  * accompanied this code).
+  14  *
+  15  * You should have received a copy of the GNU General Public License version
+  16  * 2 along with this work; if not, write to the Free Software Foundation,
+  17  * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+  18  *
+  19  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+  20  * or visit www.oracle.com if you need additional information or have any
+  21  * questions.
+  22  */
+  23 
+  24 import com.sun.jdi.*;
+  25 import com.sun.jdi.request.*;
+  26 import com.sun.jdi.event.*;
+  27 import java.util.*;
+  28 import java.io.*;
+  29 
+  30 /**
+  31  * Framework used by all JDI regression tests
+  32  */
+  33 abstract public class TestScaffold extends TargetAdapter {
+  34     private boolean shouldTrace = false;
+  35     private VMConnection connection;
+  36     private VirtualMachine vm;
+  37     private EventRequestManager requestManager;
+  38     private List listeners = Collections.synchronizedList(new LinkedList());
+  39     private boolean redefineAtStart = false;
+  40     private boolean redefineAtEvents = false;
+  41     private boolean redefineAsynchronously = false;
+  42     private ReferenceType mainStartClass = null;
+  43 
+  44     ThreadReference mainThread;
+  45     /**
+  46      * We create a VMDeathRequest, SUSPEND_ALL, to sync the BE and FE.
+  47      */
+  48     private VMDeathRequest ourVMDeathRequest = null;
+  49 
+  50     /**
+  51      * We create an ExceptionRequest, SUSPEND_NONE so that we can
+  52      * catch it and output a msg if an exception occurs in the
+  53      * debuggee.
+  54      */
+  55     private ExceptionRequest ourExceptionRequest = null;
+  56 
+  57     /**
+  58      * If we do catch an uncaught exception, we set this true
+  59      * so the testcase can find out if it wants to.
+  60      */
+  61     private boolean exceptionCaught = false;
+  62     ThreadReference vmStartThread = null;
+  63     boolean vmDied = false;
+  64     boolean vmDisconnected = false;
+  65     final String[] args;
+  66     protected boolean testFailed = false;
+  67 
+  68     static private class ArgInfo {
+  69         String targetVMArgs = "";
+  70         String targetAppCommandLine = "";
+  71         String connectorSpec = "com.sun.jdi.CommandLineLaunch:";
+  72         int traceFlags = 0;
+  73     }
+  74 
+  75     /**
+  76      * An easy way to sleep for awhile
+  77      */
+  78     public void mySleep(int millis) {
+  79         try {
+  80             Thread.sleep(millis);
+  81         } catch (InterruptedException ee) {
+  82         }
+  83     }
+  84 
+  85     boolean getExceptionCaught() {
+  86         return exceptionCaught;
+  87     }
+  88 
+  89     void setExceptionCaught(boolean value) {
+  90         exceptionCaught = value;
+  91     }
+  92 
+  93     /**
+  94      * Return true if eventSet contains the VMDeathEvent for the request in
+  95      * the ourVMDeathRequest ivar.
+  96      */
+  97     private boolean containsOurVMDeathRequest(EventSet eventSet) {
+  98         if (ourVMDeathRequest != null) {
+  99             Iterator myIter = eventSet.iterator();
+ 100             while (myIter.hasNext()) {
+ 101                 Event myEvent = (Event)myIter.next();
+ 102                 if (!(myEvent instanceof VMDeathEvent)) {
+ 103                     // We assume that an EventSet contains only VMDeathEvents
+ 104                     // or no VMDeathEvents.
+ 105                     break;
+ 106                 }
+ 107                 if (ourVMDeathRequest.equals(myEvent.request())) {
+ 108                     return true;
+ 109                 }
+ 110             }
+ 111         }
+ 112         return false;
+ 113     }
+ 114 
+ 115     /************************************************************************
+ 116      * The following methods override those in our base class, TargetAdapter.
+ 117      *************************************************************************/
+ 118 
+ 119     /**
+ 120      * Events handled directly by scaffold always resume (well, almost always)
+ 121      */
+ 122     public void eventSetComplete(EventSet set) {
+ 123         // The listener in connect(..) resumes after receiving our
+ 124         // special VMDeathEvent.  We can't also do the resume
+ 125         // here or we will probably get a VMDisconnectedException
+ 126         if (!containsOurVMDeathRequest(set)) {
+ 127             traceln("TS: set.resume() called");
+ 128             set.resume();
+ 129         }
+ 130     }
+ 131 
+ 132     /**
+ 133      * This method sets up default requests.
+ 134      * Testcases can override this to change default behavior.
+ 135      */
+ 136     protected void createDefaultEventRequests() {
+ 137         createDefaultVMDeathRequest();
+ 138         createDefaultExceptionRequest();
+ 139     }
+ 140 
+ 141     /**
+ 142      * We want the BE to stop when it issues a VMDeathEvent in order to
+ 143      * give the FE time to complete handling events that occured before
+ 144      * the VMDeath.  When we get the VMDeathEvent for this request in
+ 145      * the listener in connect(), we will do a resume.
+ 146      * If a testcase wants to do something special with VMDeathEvent's,
+ 147      * then it should override this method with an empty method or
+ 148      * whatever in order to suppress the automatic resume.  The testcase
+ 149      * will then be responsible for the handling of VMDeathEvents.  It
+ 150      * has to be sure that it does a resume if it gets a VMDeathEvent
+ 151      * with SUSPEND_ALL, and it has to be sure that it doesn't do a
+ 152      * resume after getting a VMDeath with SUSPEND_NONE (the automatically
+ 153      * generated VMDeathEvent.)
+ 154      */
+ 155     protected void createDefaultVMDeathRequest() {
+ 156         ourVMDeathRequest = requestManager.createVMDeathRequest();
+ 157         ourVMDeathRequest.setSuspendPolicy(EventRequest.SUSPEND_ALL);
+ 158         ourVMDeathRequest.enable();
+ 159     }
+ 160 
+ 161     /**
+ 162      * This will allow us to print a warning if a debuggee gets an
+ 163      * unexpected exception.  The unexpected exception will be handled in
+ 164      * the exceptionThrown method in the listener created in the connect()
+ 165      * method.
+ 166      * If a testcase does not want an uncaught exception to cause a
+ 167      * msg, it must override this method.
+ 168      */
+ 169     protected void createDefaultExceptionRequest() {
+ 170         ourExceptionRequest = requestManager.createExceptionRequest(null,
+ 171                                                                 false, true);
+ 172 
+ 173         // We can't afford to make this be other than SUSPEND_NONE.  Otherwise,
+ 174         // it would have to be resumed.  If our connect() listener resumes it,
+ 175         // what about the case where the EventSet contains other events with
+ 176         // SUSPEND_ALL and there are other listeners who expect the BE to still
+ 177         // be suspended when their handlers get called?
+ 178         ourExceptionRequest.setSuspendPolicy(EventRequest.SUSPEND_NONE);
+ 179         ourExceptionRequest.enable();
+ 180     }
+ 181 
+ 182     private class EventHandler implements Runnable {
+ 183         EventHandler() {
+ 184             Thread thread = new Thread(this);
+ 185             thread.setDaemon(true);
+ 186             thread.start();
+ 187         }
+ 188 
+ 189         private void notifyEvent(TargetListener listener, Event event) {
+ 190             if (event instanceof BreakpointEvent) {
+ 191                 listener.breakpointReached((BreakpointEvent)event);
+ 192             } else if (event instanceof ExceptionEvent) {
+ 193                 listener.exceptionThrown((ExceptionEvent)event);
+ 194             } else if (event instanceof StepEvent) {
+ 195                 listener.stepCompleted((StepEvent)event);
+ 196             } else if (event instanceof ClassPrepareEvent) {
+ 197                 listener.classPrepared((ClassPrepareEvent)event);
+ 198             } else if (event instanceof ClassUnloadEvent) {
+ 199                 listener.classUnloaded((ClassUnloadEvent)event);
+ 200             } else if (event instanceof MethodEntryEvent) {
+ 201                 listener.methodEntered((MethodEntryEvent)event);
+ 202             } else if (event instanceof MethodExitEvent) {
+ 203                 listener.methodExited((MethodExitEvent)event);
+ 204             } else if (event instanceof MonitorContendedEnterEvent) {
+ 205                 listener.monitorContendedEnter((MonitorContendedEnterEvent)event);
+ 206             } else if (event instanceof MonitorContendedEnteredEvent) {
+ 207                 listener.monitorContendedEntered((MonitorContendedEnteredEvent)event);
+ 208             } else if (event instanceof MonitorWaitEvent) {
+ 209                 listener.monitorWait((MonitorWaitEvent)event);
+ 210             } else if (event instanceof MonitorWaitedEvent) {
+ 211                 listener.monitorWaited((MonitorWaitedEvent)event);
+ 212             } else if (event instanceof AccessWatchpointEvent) {
+ 213                 listener.fieldAccessed((AccessWatchpointEvent)event);
+ 214             } else if (event instanceof ModificationWatchpointEvent) {
+ 215                 listener.fieldModified((ModificationWatchpointEvent)event);
+ 216             } else if (event instanceof ThreadStartEvent) {
+ 217                 listener.threadStarted((ThreadStartEvent)event);
+ 218             } else if (event instanceof ThreadDeathEvent) {
+ 219                 listener.threadDied((ThreadDeathEvent)event);
+ 220             } else if (event instanceof VMStartEvent) {
+ 221                 listener.vmStarted((VMStartEvent)event);
+ 222             } else if (event instanceof VMDeathEvent) {
+ 223                 listener.vmDied((VMDeathEvent)event);
+ 224             } else if (event instanceof VMDisconnectEvent) {
+ 225                 listener.vmDisconnected((VMDisconnectEvent)event);
+ 226             } else {
+ 227                 throw new InternalError("Unknown event type: " + event.getClass());
+ 228             }
+ 229         }
+ 230 
+ 231         private void traceSuspendPolicy(int policy) {
+ 232             if (shouldTrace) {
+ 233                 switch (policy) {
+ 234                 case EventRequest.SUSPEND_NONE:
+ 235                     traceln("TS: eventHandler: suspend = SUSPEND_NONE");
+ 236                     break;
+ 237                 case EventRequest.SUSPEND_ALL:
+ 238                     traceln("TS: eventHandler: suspend = SUSPEND_ALL");
+ 239                     break;
+ 240                 case EventRequest.SUSPEND_EVENT_THREAD:
+ 241                     traceln("TS: eventHandler: suspend = SUSPEND_EVENT_THREAD");
+ 242                     break;
+ 243                 }
+ 244             }
+ 245         }
+ 246 
+ 247         public void run() {
+ 248             boolean connected = true;
+ 249             do {
+ 250                 try {
+ 251                     EventSet set = vm.eventQueue().remove();
+ 252                     traceSuspendPolicy(set.suspendPolicy());
+ 253                     synchronized (listeners) {
+ 254                         ListIterator iter = listeners.listIterator();
+ 255                         while (iter.hasNext()) {
+ 256                             TargetListener listener = (TargetListener)iter.next();
+ 257                             traceln("TS: eventHandler: listener = " + listener);
+ 258                             listener.eventSetReceived(set);
+ 259                             if (listener.shouldRemoveListener()) {
+ 260                                 iter.remove();
+ 261                             } else {
+ 262                                 Iterator jter = set.iterator();
+ 263                                 while (jter.hasNext()) {
+ 264                                     Event event = (Event)jter.next();
+ 265                                     traceln("TS: eventHandler:    event = " + event.getClass());
+ 266 
+ 267                                     if (event instanceof VMDisconnectEvent) {
+ 268                                         connected = false;
+ 269                                     }
+ 270                                     listener.eventReceived(event);
+ 271                                     if (listener.shouldRemoveListener()) {
+ 272                                         iter.remove();
+ 273                                         break;
+ 274                                     }
+ 275                                     notifyEvent(listener, event);
+ 276                                     if (listener.shouldRemoveListener()) {
+ 277                                         iter.remove();
+ 278                                         break;
+ 279                                     }
+ 280                                 }
+ 281                                 traceln("TS: eventHandler:   end of events loop");
+ 282                                 if (!listener.shouldRemoveListener()) {
+ 283                                     traceln("TS: eventHandler:   calling ESC");
+ 284                                     listener.eventSetComplete(set);
+ 285                                     if (listener.shouldRemoveListener()) {
+ 286                                         iter.remove();
+ 287                                     }
+ 288                                 }
+ 289                             }
+ 290                             traceln("TS: eventHandler: end of listeners loop");
+ 291                         }
+ 292                     }
+ 293                 } catch (InterruptedException e) {
+ 294                     traceln("TS: eventHandler: InterruptedException");
+ 295                 } catch (Exception e) {
+ 296                     failure("FAILED: Exception occured in eventHandler: " + e);
+ 297                     e.printStackTrace();
+ 298                     connected = false;
+ 299                     synchronized(TestScaffold.this) {
+ 300                         // This will make the waiters such as waitForVMDisconnect
+ 301                         // exit their wait loops.
+ 302                         vmDisconnected = true;
+ 303                         TestScaffold.this.notifyAll();
+ 304                     }
+ 305                 }
+ 306                 traceln("TS: eventHandler: End of outerloop");
+ 307             } while (connected);
+ 308             traceln("TS: eventHandler: finished");
+ 309         }
+ 310     }
+ 311 
+ 312     /**
+ 313      * Constructor
+ 314      */
+ 315     public TestScaffold(String[] args) {
+ 316         this.args = args;
+ 317     }
+ 318 
+ 319     public void enableScaffoldTrace() {
+ 320         this.shouldTrace = true;
+ 321     }
+ 322 
+ 323     public void disableScaffoldTrace() {
+ 324         this.shouldTrace = false;
+ 325     }
+ 326 
+ 327     /**
+ 328      * Helper for the redefine method.  Build the map
+ 329      * needed for a redefine.
+ 330      */
+ 331     protected Map makeRedefineMap(ReferenceType rt) throws Exception {
+ 332         String className = rt.name();
+ 333         File path = new File(System.getProperty("test.classes", "."));
+ 334         className = className.replace('.', File.separatorChar);
+ 335         File phyl = new File(path, className + ".class");
+ 336         byte[] bytes = new byte[(int)phyl.length()];
+ 337         InputStream in = new FileInputStream(phyl);
+ 338         in.read(bytes);
+ 339         in.close();
+ 340 
+ 341         Map map = new HashMap();
+ 342         map.put(rt, bytes);
+ 343 
+ 344         return map;
+ 345     }
+ 346 
+ 347     /**
+ 348      * Redefine a class - HotSwap it
+ 349      */
+ 350     protected void redefine(ReferenceType rt) {
+ 351         try {
+ 352             println("Redefining " + rt);
+ 353             vm().redefineClasses(makeRedefineMap(rt));
+ 354         } catch (Exception exc) {
+ 355             failure("FAIL: redefine - unexpected exception: " + exc);
+ 356         }
+ 357     }
+ 358 
+ 359     protected void startUp(String targetName) {
+ 360         List argList = new ArrayList(Arrays.asList(args));
+ 361         argList.add(targetName);
+ 362         println("run args: " + argList);
+ 363         connect((String[]) argList.toArray(args));
+ 364         waitForVMStart();
+ 365     }
+ 366 
+ 367     protected BreakpointEvent startToMain(String targetName) {
+ 368         return startTo(targetName, "main", "([Ljava/lang/String;)V");
+ 369     }
+ 370 
+ 371     protected BreakpointEvent startTo(String targetName,
+ 372                                       String methodName, String signature) {
+ 373         startUp(targetName);
+ 374         traceln("TS: back from startUp");
+ 375 
+ 376         BreakpointEvent bpr = resumeTo(targetName, methodName,
+ 377                                        signature);
+ 378         Location loc = bpr.location();
+ 379         mainStartClass = loc.declaringType();
+ 380         if (redefineAtStart) {
+ 381             redefine(mainStartClass);
+ 382         }
+ 383         if (redefineAsynchronously) {
+ 384             Thread asyncDaemon = new Thread("Async Redefine") {
+ 385                 public void run() {
+ 386                     try {
+ 387                         Map redefMap = makeRedefineMap(mainStartClass);
+ 388 
+ 389                         while (true) {
+ 390                             println("Redefining " + mainStartClass);
+ 391                             vm().redefineClasses(redefMap);
+ 392                             Thread.sleep(100);
+ 393                         }
+ 394                     } catch (VMDisconnectedException vmde) {
+ 395                         println("async redefine - VM disconnected");
+ 396                     } catch (Exception exc) {
+ 397                         failure("FAIL: async redefine - unexpected exception: " + exc);
+ 398                     }
+ 399                 }
+ 400             };
+ 401             asyncDaemon.setDaemon(true);
+ 402             asyncDaemon.start();
+ 403         }
+ 404 
+ 405         if (System.getProperty("jpda.wait") != null) {
+ 406             waitForInput();
+ 407         }
+ 408         return bpr;
+ 409     }
+ 410 
+ 411     protected void waitForInput() {
+ 412         try {
+ 413             System.err.println("Press &lt;enter&gt; to continue");
+ 414             System.in.read();
+ 415             System.err.println("running...");
+ 416 
+ 417         } catch(Exception e) {
+ 418         }
+ 419     }
+ 420 
+ 421     /*
+ 422      * Test cases should implement tests in runTests and should
+ 423      * initiate testing by calling run().
+ 424      */
+ 425     abstract protected void runTests() throws Exception;
+ 426 
+ 427     final public void startTests() throws Exception {
+ 428         try {
+ 429             runTests();
+ 430         } finally {
+ 431             shutdown();
+ 432         }
+ 433     }
+ 434 
+ 435     protected void println(String str) {
+ 436         System.err.println(str);
+ 437     }
+ 438 
+ 439     protected void print(String str) {
+ 440         System.err.print(str);
+ 441     }
+ 442 
+ 443     protected void traceln(String str) {
+ 444         if (shouldTrace) {
+ 445             println(str);
+ 446         }
+ 447     }
+ 448 
+ 449     protected void failure(String str) {
+ 450         println(str);
+ 451         testFailed = true;
+ 452     }
+ 453 
+ 454     private ArgInfo parseArgs(String args[]) {
+ 455         ArgInfo argInfo = new ArgInfo();
+ 456         for (int i = 0; i &lt; args.length; i++) {
+ 457             if (args[i].equals("-connect")) {
+ 458                 i++;
+ 459                 argInfo.connectorSpec = args[i];
+ 460             } else if (args[i].equals("-trace")) {
+ 461                 i++;
+ 462                 argInfo.traceFlags = Integer.decode(args[i]).intValue();
+ 463             } else if (args[i].equals("-redefstart")) {
+ 464                 redefineAtStart = true;
+ 465             } else if (args[i].equals("-redefevent")) {
+ 466                 redefineAtEvents = true;
+ 467             } else if (args[i].equals("-redefasync")) {
+ 468                 redefineAsynchronously = true;
+ 469             } else if (args[i].startsWith("-J")) {
+ 470                 argInfo.targetVMArgs += (args[i].substring(2) + ' ');
+ 471 
+ 472                 /*
+ 473                  * classpath can span two arguments so we need to handle
+ 474                  * it specially.
+ 475                  */
+ 476                 if (args[i].equals("-J-classpath")) {
+ 477                     i++;
+ 478                     argInfo.targetVMArgs += (args[i] + ' ');
+ 479                 }
+ 480             } else {
+ 481                 argInfo.targetAppCommandLine += (args[i] + ' ');
+ 482             }
+ 483         }
+ 484         return argInfo;
+ 485     }
+ 486 
+ 487     /**
+ 488      * This is called to connect to a debuggee VM.  It starts the VM and
+ 489      * installs a listener to catch VMStartEvent, our default events, and
+ 490      * VMDisconnectedEvent.  When these events appear, that is remembered
+ 491      * and waiters are notified.
+ 492      * This is normally called in the main thread of the test case.
+ 493      * It starts up an EventHandler thread that gets events coming in
+ 494      * from the debuggee and distributes them to listeners.  That thread
+ 495      * keeps running until a VMDisconnectedEvent occurs or some exception
+ 496      * occurs during its processing.
+ 497      *
+ 498      * The 'listenUntilVMDisconnect' method adds 'this' as a listener.
+ 499      * This means that 'this's vmDied method will get called.  This has a
+ 500      * default impl in TargetAdapter.java which can be overridden in the
+ 501      * testcase.
+ 502      *
+ 503      * waitForRequestedEvent also adds an adaptor listener that listens
+ 504      * for the particular event it is supposed to wait for (and it also
+ 505      * catches VMDisconnectEvents.)  This listener is removed once
+ 506      * its eventReceived method is called.
+ 507      * waitForRequestedEvent is called by most of the methods to do bkpts,
+ 508      * etc.
+ 509      */
+ 510     public void connect(String args[]) {
+ 511         ArgInfo argInfo = parseArgs(args);
+ 512 
+ 513         argInfo.targetVMArgs += VMConnection.getDebuggeeVMOptions();
+ 514         connection = new VMConnection(argInfo.connectorSpec,
+ 515                                       argInfo.traceFlags);
+ 516 
+ 517         addListener(new TargetAdapter() {
+ 518                 public void eventSetComplete(EventSet set) {
+ 519                     if (TestScaffold.this.containsOurVMDeathRequest(set)) {
+ 520                         traceln("TS: connect: set.resume() called");
+ 521                         set.resume();
+ 522 
+ 523                         // Note that we want to do the above resume before
+ 524                         // waking up any sleepers.
+ 525                         synchronized(TestScaffold.this) {
+ 526                             TestScaffold.this.notifyAll();
+ 527                         }
+ 528                     }
+ 529                 }
+ 530                 public void eventReceived(Event event) {
+ 531                     if (redefineAtEvents &amp;&amp; event instanceof Locatable) {
+ 532                         Location loc = ((Locatable)event).location();
+ 533                         ReferenceType rt = loc.declaringType();
+ 534                         String name = rt.name();
+ 535                         if (name.startsWith("java.") &amp;&amp;
+ 536                                        !name.startsWith("sun.") &amp;&amp;
+ 537                                        !name.startsWith("com.")) {
+ 538                             if (mainStartClass != null) {
+ 539                                 redefine(mainStartClass);
+ 540                             }
+ 541                         } else {
+ 542                             redefine(rt);
+ 543                         }
+ 544                     }
+ 545                 }
+ 546 
+ 547                 public void vmStarted(VMStartEvent event) {
+ 548                     synchronized(TestScaffold.this) {
+ 549                         vmStartThread = event.thread();
+ 550                         TestScaffold.this.notifyAll();
+ 551                     }
+ 552                 }
+ 553                 /**
+ 554                  * By default, we catch uncaught exceptions and print a msg.
+ 555                  * The testcase must override the createDefaultExceptionRequest
+ 556                  * method if it doesn't want this behavior.
+ 557                  */
+ 558                 public void exceptionThrown(ExceptionEvent event) {
+ 559                     if (TestScaffold.this.ourExceptionRequest != null &amp;&amp;
+ 560                         TestScaffold.this.ourExceptionRequest.equals(
+ 561                                                         event.request())) {
+ 562                         /*
+ 563                          * See
+ 564                          *    5038723: com/sun/jdi/sde/TemperatureTableTest.java:
+ 565                          *             intermittent ObjectCollectedException
+ 566                          * Since this request was SUSPEND_NONE, the debuggee
+ 567                          * could keep running and the calls below back into
+ 568                          * the debuggee might not work.  That is why we
+ 569                          * have this try/catch.
+ 570                          */
+ 571                         try {
+ 572                             println("Note: Unexpected Debuggee Exception: " +
+ 573                                     event.exception().referenceType().name() +
+ 574                                     " at line " + event.location().lineNumber());
+ 575                             TestScaffold.this.exceptionCaught = true;
+ 576 
+ 577                             ObjectReference obj = event.exception();
+ 578                             ReferenceType rtt = obj.referenceType();
+ 579                             Field detail = rtt.fieldByName("detailMessage");
+ 580                             Value val = obj.getValue(detail);
+ 581                             println("detailMessage = " + val);
+ 582 
+ 583                             /*
+ 584                              * This code is commented out because it needs a thread
+ 585                              * in which to do the invokeMethod and we don't have
+ 586                              * one.  To enable this code change the request
+ 587                              * to be SUSPEND_ALL in createDefaultExceptionRequest,
+ 588                              * and then put this line
+ 589                              *    mainThread = bpe.thread();
+ 590                              * in the testcase after the line
+ 591                              *    BreakpointEvent bpe = startToMain("....");
+ 592                              */
+ 593                             if (false) {
+ 594                                 List lll = rtt.methodsByName("printStackTrace");
+ 595                                 Method mm = (Method)lll.get(0);
+ 596                                 obj.invokeMethod(mainThread, mm, new ArrayList(0), 0);
+ 597                             }
+ 598                         } catch (Exception ee) {
+ 599                             println("TestScaffold Exception while handling debuggee Exception: "
+ 600                                     + ee);
+ 601                         }
+ 602                     }
+ 603                 }
+ 604 
+ 605                 public void vmDied(VMDeathEvent event) {
+ 606                     vmDied = true;
+ 607                     traceln("TS: vmDied called");
+ 608                 }
+ 609 
+ 610                 public void vmDisconnected(VMDisconnectEvent event) {
+ 611                     synchronized(TestScaffold.this) {
+ 612                         vmDisconnected = true;
+ 613                         TestScaffold.this.notifyAll();
+ 614                     }
+ 615                 }
+ 616             });
+ 617         if (connection.connector().name().equals("com.sun.jdi.CommandLineLaunch")) {
+ 618             if (argInfo.targetVMArgs.length() &gt; 0) {
+ 619                 if (connection.connectorArg("options").length() &gt; 0) {
+ 620                     throw new IllegalArgumentException("VM options in two places");
+ 621                 }
+ 622                 connection.setConnectorArg("options", argInfo.targetVMArgs);
+ 623             }
+ 624             if (argInfo.targetAppCommandLine.length() &gt; 0) {
+ 625                 if (connection.connectorArg("main").length() &gt; 0) {
+ 626                     throw new IllegalArgumentException("Command line in two places");
+ 627                 }
+ 628                 connection.setConnectorArg("main", argInfo.targetAppCommandLine);
+ 629             }
+ 630         }
+ 631 
+ 632         vm = connection.open();
+ 633         requestManager = vm.eventRequestManager();
+ 634         createDefaultEventRequests();
+ 635         new EventHandler();
+ 636     }
+ 637 
+ 638 
+ 639     public VirtualMachine vm() {
+ 640         return vm;
+ 641     }
+ 642 
+ 643     public EventRequestManager eventRequestManager() {
+ 644         return requestManager;
+ 645     }
+ 646 
+ 647     public void addListener(TargetListener listener) {
+ 648         traceln("TS: Adding listener " + listener);
+ 649         listeners.add(listener);
+ 650     }
+ 651 
+ 652     public void removeListener(TargetListener listener) {
+ 653         traceln("TS: Removing listener " + listener);
+ 654         listeners.remove(listener);
+ 655     }
+ 656 
+ 657 
+ 658     protected void listenUntilVMDisconnect() {
+ 659         try {
+ 660             addListener (this);
+ 661         } catch (Exception ex){
+ 662             ex.printStackTrace();
+ 663             testFailed = true;
+ 664         } finally {
+ 665             // Allow application to complete and shut down
+ 666             resumeToVMDisconnect();
+ 667         }
+ 668     }
+ 669 
+ 670     public synchronized ThreadReference waitForVMStart() {
+ 671         while ((vmStartThread == null) &amp;&amp; !vmDisconnected) {
+ 672             try {
+ 673                 wait();
+ 674             } catch (InterruptedException e) {
+ 675             }
+ 676         }
+ 677 
+ 678         if (vmStartThread == null) {
+ 679             throw new VMDisconnectedException();
+ 680         }
+ 681 
+ 682         return vmStartThread;
+ 683     }
+ 684 
+ 685     public synchronized void waitForVMDisconnect() {
+ 686         traceln("TS: waitForVMDisconnect");
+ 687         while (!vmDisconnected) {
+ 688             try {
+ 689                 wait();
+ 690             } catch (InterruptedException e) {
+ 691             }
+ 692         }
+ 693         traceln("TS: waitForVMDisconnect: done");
+ 694     }
+ 695 
+ 696     public Event waitForRequestedEvent(final EventRequest request) {
+ 697         class EventNotification {
+ 698             Event event;
+ 699             boolean disconnected = false;
+ 700         }
+ 701         final EventNotification en = new EventNotification();
+ 702 
+ 703         TargetAdapter adapter = new TargetAdapter() {
+ 704             public void eventReceived(Event event) {
+ 705                 if (request.equals(event.request())) {
+ 706                     traceln("TS:Listener2: got requested event");
+ 707                     synchronized (en) {
+ 708                         en.event = event;
+ 709                         en.notifyAll();
+ 710                     }
+ 711                     removeThisListener();
+ 712                 } else if (event instanceof VMDisconnectEvent) {
+ 713                     traceln("TS:Listener2: got VMDisconnectEvent");
+ 714                     synchronized (en) {
+ 715                         en.disconnected = true;
+ 716                         en.notifyAll();
+ 717                     }
+ 718                     removeThisListener();
+ 719                 }
+ 720             }
+ 721         };
+ 722 
+ 723         addListener(adapter);
+ 724 
+ 725         try {
+ 726             synchronized (en) {
+ 727                 traceln("TS: waitForRequestedEvent: vm.resume called");
+ 728                 vm.resume();
+ 729 
+ 730                 while (!en.disconnected &amp;&amp; (en.event == null)) {
+ 731                     en.wait();
+ 732                 }
+ 733             }
+ 734         } catch (InterruptedException e) {
+ 735             return null;
+ 736         }
+ 737 
+ 738         if (en.disconnected) {
+ 739             throw new RuntimeException("VM Disconnected before requested event occurred");
+ 740         }
+ 741         return en.event;
+ 742     }
+ 743 
+ 744     private StepEvent doStep(ThreadReference thread, int gran, int depth) {
+ 745         final StepRequest sr =
+ 746                   requestManager.createStepRequest(thread, gran, depth);
+ 747 
+ 748         sr.addClassExclusionFilter("java.*");
+ 749         sr.addClassExclusionFilter("javax.*");
+ 750         sr.addClassExclusionFilter("sun.*");
+ 751         sr.addClassExclusionFilter("com.sun.*");
+ 752         sr.addClassExclusionFilter("com.oracle.*");
+ 753         sr.addClassExclusionFilter("oracle.*");
+ 754         sr.addClassExclusionFilter("jdk.internal.*");
+ 755         sr.addCountFilter(1);
+ 756         sr.enable();
+ 757         StepEvent retEvent = (StepEvent)waitForRequestedEvent(sr);
+ 758         requestManager.deleteEventRequest(sr);
+ 759         return retEvent;
+ 760     }
+ 761 
+ 762     public StepEvent stepIntoInstruction(ThreadReference thread) {
+ 763         return doStep(thread, StepRequest.STEP_MIN, StepRequest.STEP_INTO);
+ 764     }
+ 765 
+ 766     public StepEvent stepIntoLine(ThreadReference thread) {
+ 767         return doStep(thread, StepRequest.STEP_LINE, StepRequest.STEP_INTO);
+ 768     }
+ 769 
+ 770     public StepEvent stepOverInstruction(ThreadReference thread) {
+ 771         return doStep(thread, StepRequest.STEP_MIN, StepRequest.STEP_OVER);
+ 772     }
+ 773 
+ 774     public StepEvent stepOverLine(ThreadReference thread) {
+ 775         return doStep(thread, StepRequest.STEP_LINE, StepRequest.STEP_OVER);
+ 776     }
+ 777 
+ 778     public StepEvent stepOut(ThreadReference thread) {
+ 779         return doStep(thread, StepRequest.STEP_LINE, StepRequest.STEP_OUT);
+ 780     }
+ 781 
+ 782     public BreakpointEvent resumeTo(Location loc) {
+ 783         return resumeTo(loc, false);
+ 784     }
+ 785 
+ 786     public BreakpointEvent resumeTo(Location loc, boolean suspendThread) {
+ 787         final BreakpointRequest request =
+ 788             requestManager.createBreakpointRequest(loc);
+ 789         request.addCountFilter(1);
+ 790         if (suspendThread) {
+ 791             request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+ 792         }
+ 793         request.enable();
+ 794         return (BreakpointEvent)waitForRequestedEvent(request);
+ 795     }
+ 796 
+ 797     public ReferenceType findReferenceType(String name) {
+ 798         List rts = vm.classesByName(name);
+ 799         Iterator iter = rts.iterator();
+ 800         while (iter.hasNext()) {
+ 801             ReferenceType rt = (ReferenceType)iter.next();
+ 802             if (rt.name().equals(name)) {
+ 803                 return rt;
+ 804             }
+ 805         }
+ 806         return null;
+ 807     }
+ 808 
+ 809     public Method findMethod(ReferenceType rt, String name, String signature) {
+ 810         List methods = rt.methods();
+ 811         Iterator iter = methods.iterator();
+ 812         while (iter.hasNext()) {
+ 813             Method method = (Method)iter.next();
+ 814             if (method.name().equals(name) &amp;&amp;
+ 815                 method.signature().equals(signature)) {
+ 816                 return method;
+ 817             }
+ 818         }
+ 819         return null;
+ 820     }
+ 821 
+ 822     public Location findLocation(ReferenceType rt, int lineNumber)
+ 823                          throws AbsentInformationException {
+ 824         List locs = rt.locationsOfLine(lineNumber);
+ 825         if (locs.size() == 0) {
+ 826             throw new IllegalArgumentException("Bad line number");
+ 827         } else if (locs.size() &gt; 1) {
+ 828             throw new IllegalArgumentException("Line number has multiple locations");
+ 829         }
+ 830 
+ 831         return (Location)locs.get(0);
+ 832     }
+ 833 
+ 834     public BreakpointEvent resumeTo(String clsName, String methodName,
+ 835                                          String methodSignature) {
+ 836         ReferenceType rt = findReferenceType(clsName);
+ 837         if (rt == null) {
+ 838             rt = resumeToPrepareOf(clsName).referenceType();
+ 839         }
+ 840 
+ 841         Method method = findMethod(rt, methodName, methodSignature);
+ 842         if (method == null) {
+ 843             throw new IllegalArgumentException("Bad method name/signature: "
+ 844                     + clsName + "." + methodName + ":" + methodSignature);
+ 845         }
+ 846 
+ 847         return resumeTo(method.location());
+ 848     }
+ 849 
+ 850     public BreakpointEvent resumeTo(String clsName, int lineNumber) throws AbsentInformationException {
+ 851         return resumeTo(clsName, lineNumber, false);
+ 852     }
+ 853 
+ 854     public BreakpointEvent resumeTo(String clsName, int lineNumber, boolean suspendThread) throws AbsentInformationException {
+ 855         ReferenceType rt = findReferenceType(clsName);
+ 856         if (rt == null) {
+ 857             rt = resumeToPrepareOf(clsName).referenceType();
+ 858         }
+ 859 
+ 860         return resumeTo(findLocation(rt, lineNumber), suspendThread);
+ 861     }
+ 862 
+ 863     public ClassPrepareEvent resumeToPrepareOf(String className) {
+ 864         final ClassPrepareRequest request =
+ 865             requestManager.createClassPrepareRequest();
+ 866         request.addClassFilter(className);
+ 867         request.addCountFilter(1);
+ 868         request.enable();
+ 869         return (ClassPrepareEvent)waitForRequestedEvent(request);
+ 870     }
+ 871 
+ 872     public void resumeForMsecs(long msecs) {
+ 873         try {
+ 874             addListener (this);
+ 875         } catch (Exception ex){
+ 876             ex.printStackTrace();
+ 877             testFailed = true;
+ 878             return;
+ 879         }
+ 880 
+ 881         try {
+ 882             vm().resume();
+ 883         } catch (VMDisconnectedException e) {
+ 884         }
+ 885 
+ 886         if (!vmDisconnected) {
+ 887             try {
+ 888                 System.out.println("Sleeping for " + msecs + " milleseconds");
+ 889                 Thread.sleep(msecs);
+ 890                 vm().suspend();
+ 891             } catch (InterruptedException e) {
+ 892             }
+ 893         }
+ 894     }
+ 895 
+ 896     public void resumeToVMDisconnect() {
+ 897         try {
+ 898             traceln("TS: resumeToVMDisconnect: vm.resume called");
+ 899             vm.resume();
+ 900         } catch (VMDisconnectedException e) {
+ 901             // clean up below
+ 902         }
+ 903         waitForVMDisconnect();
+ 904     }
+ 905 
+ 906     public void shutdown() {
+ 907         shutdown(null);
+ 908     }
+ 909 
+ 910     public void shutdown(String message) {
+ 911         traceln("TS: shutdown: vmDied= " + vmDied +
+ 912                  ", vmDisconnected= " + vmDisconnected +
+ 913                  ", connection = " + connection);
+ 914 
+ 915         if ((connection != null)) {
+ 916             try {
+ 917                 connection.disposeVM();
+ 918              } catch (VMDisconnectedException e) {
+ 919                 // Shutting down after the VM has gone away. This is
+ 920                 // not an error, and we just ignore it.
+ 921             }
+ 922         } else {
+ 923             traceln("TS: shutdown: disposeVM not called");
+ 924         }
+ 925         if (message != null) {
+ 926             println(message);
+ 927         }
+ 928 
+ 929         vmDied = true;
+ 930         vmDisconnected = true;
+ 931     }
+ 932 }
+</pre></body></html>
